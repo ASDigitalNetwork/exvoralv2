@@ -1,0 +1,127 @@
+export type Language = 'fr' | 'en' | 'pt';
+
+export interface Translation {
+  loading: string;
+  error: string;
+  success: string;
+  cancel: string;
+  confirm: string;
+  save: string;
+  edit: string;
+  delete: string;
+  back: string;
+  next: string;
+  submit: string;
+  search: string;
+  filter: string;
+  view: string;
+  home: string;
+  dashboard: string;
+  profile: string;
+  logout: string;
+  myTransports: string;
+  availableRequests: string;
+  partnerTransports: string;
+  clientTracking: string;
+  partnerTracking: string;
+  newRequest: string;
+  invoices: string;
+  login: string;
+  signup: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  forgotPassword: string;
+  createAccount: string;
+  alreadyHaveAccount: string;
+  dontHaveAccount: string;
+  signInToAccount: string;
+  joinPlatform: string;
+  client: string;
+  partner: string;
+  admin: string;
+  clientDescription: string;
+  partnerDescription: string;
+  adminDescription: string;
+  pendingApproval: string;
+  accountNotValidated: string;
+  contactAdmin: string;
+  transportRequest: string;
+  pickupAddress: string;
+  destinationAddress: string;
+  requestDate: string;
+  description: string;
+  photos: string;
+  documents: string;
+  status: string;
+  packageType: string;
+  packageWeight: string;
+  packageDimensions: string;
+  estimatedPrice: string;
+  finalPrice: string;
+  pending: string;
+  approved: string;
+  rejected: string;
+  inProgress: string;
+  completed: string;
+  cancelled: string;
+  quoted: string;
+  accepted: string;
+  delivered: string;
+  businessAddress: string;
+  city: string;
+  vatNumber: string;
+  siretNumber: string;
+  companyId: string;
+  submitOffer: string;
+  yourOffer: string;
+  priceProposal: string;
+  businessInfo: string;
+  required: string;
+  optional: string;
+  myRequests: string;
+  myOffers: string;
+  userManagement: string;
+  validateUsers: string;
+  validateOffers: string;
+  totalRevenue: string;
+  activeTransports: string;
+  completedTransports: string;
+  pendingOffers: string;
+  updateProfile: string;
+  personalInfo: string;
+  accountSettings: string;
+  changeLanguage: string;
+  uploadPhoto: string;
+  addNote: string;
+  sendMessage: string;
+  trackingUpdate: string;
+  loadingPhoto: string;
+  unloadingPhoto: string;
+  currentLocation: string;
+  lastUpdate: string;
+  estimatedDelivery: string;
+  specialRequest: string;
+  appName: string;
+  appSlogan: string;
+  welcomeMessage: string;
+  allRightsReserved: string;
+  language: string;
+  flag: string;
+}
+
+// Import des fichiers de langue
+import fr from './fr';
+import en from './en';
+import pt from './pt';
+
+export const DEFAULT_LANGUAGE: Language = 'fr';
+
+export const translations: Record<Language, Translation> = {
+  fr,
+  en,
+  pt,
+};
