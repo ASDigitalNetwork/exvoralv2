@@ -4,7 +4,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Routes, Route } from "react-router-dom";
 import { TranslationProvider } from "@/context/TranslationContext";
-import { CurrencyProvider } from "@/hooks/useCurrency";
 
 // Pages
 import Index from "@/pages/Index";
@@ -34,7 +33,6 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <TranslationProvider>
-        <CurrencyProvider>
           <Toaster />
           <Sonner />
           <Routes>
@@ -59,7 +57,6 @@ const App = () => (
             <Route path="/admin/invoices" element={<InvoicesPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </CurrencyProvider>
       </TranslationProvider>
     </TooltipProvider>
   </QueryClientProvider>
