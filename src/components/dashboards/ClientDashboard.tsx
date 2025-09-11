@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Package, Clock, CheckCircle, Truck, Euro, FileText,
@@ -14,11 +14,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { databases } from '@/lib/appwrite';
+import { databases, account } from '@/lib/appwrite';
 import { Query } from 'appwrite';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
-import { account } from '@/lib/appwrite';
 
 interface TransportRequest {
   $id: string;
@@ -31,12 +30,18 @@ interface TransportRequest {
   price?: number;
 }
 
-const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042'];
+const PIE_COLORS = ['#5E778B', '#344B5D', '#0B161C', '#8AA2B4']; // palette exv
 
 export default function ClientDashboard() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [requests, setRequests] = useState<TransportRequest[]>([]);
   const [selectedTab, setSelectedTab] = useState<'overview' | 'requests' | 'invoices'>('overview');
+
+  const formatEUR = useMemo(
+    () => (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n),
+    []
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -73,38 +78,52 @@ export default function ClientDashboard() {
 
   const stats = [
     {
-      titre: 'Demandes en cours',
+      titre: t.statOpenRequests, // "Demandes en cours"
       valeur: requests.filter(r => r.status === 'pending').length,
       icone: <Clock className="h-5 w-5" />,
-      couleur: 'text-yellow-600',
+      couleur: 'text-exv-accent',
     },
     {
-      titre: 'Transports validés',
+      titre: t.statValidatedTransports, // "Transports validés"
       valeur: requests.filter(r => r.status === 'validated').length,
       icone: <CheckCircle className="h-5 w-5" />,
-      couleur: 'text-green-600',
+      couleur: 'text-exv-accent',
     },
     {
-      titre: 'Chiffre d’affaires total',
-      valeur: `${requests.reduce((total, r) => r.status === 'validated' ? total + (r.price || 0) : total, 0)}€`,
+      titre: t.statTotalRevenue, // "Chiffre d’affaires total"
+      valeur: formatEUR(
+        requests.reduce((total, r) => (r.status === 'validated' ? total + (r.price || 0) : total), 0)
+      ),
       icone: <Euro className="h-5 w-5" />,
-      couleur: 'text-indigo-600',
+      couleur: 'text-exv-accent',
     },
     {
-      titre: 'Toutes mes demandes',
+      titre: t.statAllRequests, // "Toutes mes demandes"
       valeur: requests.length,
       icone: <FileText className="h-5 w-5" />,
-      couleur: 'text-blue-600',
+      couleur: 'text-exv-accent',
     },
   ];
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending': return <Clock className="h-4 w-4" />;
+      case 'validated':
       case 'approved': return <CheckCircle className="h-4 w-4" />;
       case 'inProgress': return <Truck className="h-4 w-4" />;
       case 'completed': return <Package className="h-4 w-4" />;
       default: return <Clock className="h-4 w-4" />;
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'pending': return t.statusPending;
+      case 'validated': return t.statusValidated;
+      case 'approved': return t.statusApproved;
+      case 'inProgress': return t.statusInProgress;
+      case 'completed': return t.statusCompleted;
+      default: return status;
     }
   };
 
@@ -119,7 +138,7 @@ export default function ClientDashboard() {
 
   const statusDistribution = Object.values(
     requests.reduce((acc, r) => {
-      if (!acc[r.status]) acc[r.status] = { name: r.status, value: 0 };
+      if (!acc[r.status]) acc[r.status] = { name: getStatusLabel(r.status), value: 0 };
       acc[r.status].value++;
       return acc;
     }, {} as Record<string, { name: string, value: number }>)
@@ -127,32 +146,41 @@ export default function ClientDashboard() {
 
   return (
     <div className="p-4">
-      <Card className="bg-gray-100 text-black shadow-xl rounded-3xl">
+      <Card className="bg-exv-card text-exv-text border border-exv-border shadow-xl rounded-3xl">
         <CardHeader>
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
-              <h1 className="text-3xl font-bold">Tableau de bord</h1>
-              <p className="text-gray-500">Bienvenue sur votre espace client</p>
+              <h1 className="text-3xl font-bold">{t.dashboardTitle}</h1>
+              <p className="text-exv-sub">{t.dashboardWelcome}</p>
             </div>
             <div className="flex gap-3 flex-wrap">
-              <Button onClick={() => navigate('/invoices')} size="lg" className="bg-blue-600 hover:bg-blue-500 text-white">
-                <FileText className="h-4 w-4 mr-2" /> Factures
+              <Button
+                onClick={() => navigate('/invoices')}
+                size="lg"
+                className="bg-exv-panel hover:opacity-90 text-exv-text border border-exv-border"
+              >
+                <FileText className="h-4 w-4 mr-2" /> {t.btnInvoices}
               </Button>
-              <Button onClick={() => navigate('/new-request')} size="lg" className="bg-orange-500 hover:bg-orange-400 text-white">
-                <Plus className="h-4 w-4 mr-2" /> Nouvelle demande
+              <Button
+                onClick={() => navigate('/new-request')}
+                size="lg"
+                className="bg-exv-accent hover:opacity-90 text-exv-primary"
+              >
+                <Plus className="h-4 w-4 mr-2" /> {t.btnNewRequest}
               </Button>
             </div>
           </div>
         </CardHeader>
 
         <CardContent className="space-y-10">
+          {/* KPIs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {stats.map((stat, index) => (
-              <Card key={index} className="bg-white border shadow text-black">
+              <Card key={index} className="bg-exv-panel border border-exv-border shadow text-exv-text">
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-500">{stat.titre}</p>
+                      <p className="text-sm text-exv-sub">{stat.titre}</p>
                       <p className="text-2xl font-bold">{stat.valeur}</p>
                     </div>
                     <div className={stat.couleur}>{stat.icone}</div>
@@ -162,11 +190,12 @@ export default function ClientDashboard() {
             ))}
           </div>
 
-          <div className="flex gap-2 bg-gray-300 rounded-full p-1 w-fit shadow-inner">
+          {/* Tabs */}
+          <div className="flex gap-2 bg-exv-panel border border-exv-border rounded-full p-1 w-fit shadow-inner">
             {[
-              { key: 'overview', label: 'Tableau de bord' },
-              { key: 'requests', label: 'Mes demandes' },
-              { key: 'invoices', label: 'Mes factures' },
+              { key: 'overview', label: t.tabOverview },
+              { key: 'requests', label: t.tabRequests },
+              { key: 'invoices', label: t.tabInvoices },
             ].map((tab) => (
               <Button
                 key={tab.key}
@@ -176,8 +205,8 @@ export default function ClientDashboard() {
                 className={cn(
                   'rounded-full px-4',
                   selectedTab === tab.key
-                    ? 'bg-orange-500 text-white'
-                    : 'text-black hover:bg-white/50'
+                    ? 'bg-exv-accent text-exv-primary'
+                    : 'text-exv-text hover:bg-exv-card'
                 )}
               >
                 {tab.label}
@@ -185,53 +214,56 @@ export default function ClientDashboard() {
             ))}
           </div>
 
+          {/* Overview */}
           {selectedTab === 'overview' && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <Card className="bg-white text-black border shadow">
+              {/* Recent shipments */}
+              <Card className="bg-exv-panel text-exv-text border border-exv-border shadow">
                 <CardHeader>
-                  <CardTitle>Mes transports</CardTitle>
-                  <CardDescription className="text-gray-500">Suivi de vos transports récents</CardDescription>
+                  <CardTitle>{t.sectionMyTransports}</CardTitle>
+                  <CardDescription className="text-exv-sub">{t.sectionMyTransportsDesc}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {requests.filter(r => r.status === 'validated').slice(0, 3).map((request) => (
                     <div
                       key={request.$id}
-                      className="flex items-center justify-between p-3 bg-gray-100 rounded-xl shadow-sm"
+                      className="flex items-center justify-between p-3 bg-exv-card rounded-xl border border-exv-border"
                     >
                       <div className="flex-1">
                         <div className="flex gap-2 mb-1 text-sm font-medium">
                           <span>{request.pickup}</span>
-                          <span className="text-gray-400">→</span>
+                          <span className="text-exv-sub">→</span>
                           <span>{request.destination}</span>
                         </div>
-                        <p className="text-xs text-gray-500">{request.description}</p>
+                        <p className="text-xs text-exv-sub">{request.description}</p>
                       </div>
-                      <Badge variant="secondary" className="bg-gray-300 text-gray-800 text-xs flex items-center gap-1 px-2 py-1 rounded-full">
-                        {getStatusIcon(request.status)} {request.status}
+                      <Badge className="bg-exv-panel border border-exv-border text-exv-text text-xs flex items-center gap-1 px-2 py-1 rounded-full">
+                        {getStatusIcon(request.status)} {getStatusLabel(request.status)}
                       </Badge>
                     </div>
                   ))}
                 </CardContent>
               </Card>
 
-              <Card className="bg-white text-black border shadow">
+              {/* Charts */}
+              <Card className="bg-exv-panel text-exv-text border border-exv-border shadow">
                 <CardHeader>
-                  <CardTitle>Statistiques</CardTitle>
+                  <CardTitle>{t.sectionStats}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="h-48">
+                  <div className="h-48 bg-exv-card border border-exv-border rounded-xl p-2">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={revenueByDate}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2A3C49" />
+                        <XAxis dataKey="date" stroke="#C9D6DF" />
+                        <YAxis stroke="#C9D6DF" />
                         <Tooltip />
-                        <Line type="monotone" dataKey="total" stroke="#8884d8" />
+                        <Line type="monotone" dataKey="total" stroke="#5E778B" strokeWidth={2} dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
 
-                  <div className="h-48">
+                  <div className="h-48 bg-exv-card border border-exv-border rounded-xl p-2">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -244,7 +276,7 @@ export default function ClientDashboard() {
                           label
                         >
                           {statusDistribution.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                           ))}
                         </Pie>
                         <Tooltip />

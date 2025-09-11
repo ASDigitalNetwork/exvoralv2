@@ -18,13 +18,13 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, NavLink } from 'react-router-dom';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { account, databases } from '@/lib/appwrite';
 import { Query } from 'appwrite';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface UserInfo {
   first_name: string;
@@ -32,28 +32,35 @@ interface UserInfo {
   role: string;
 }
 
-const getMenuItems = (role: string) => {
+const roleLabel = (role: string, t: Record<string, string>) => {
+  if (role === 'client') return t.roleClientLabel;
+  if (role === 'partner') return t.rolePartnerLabel;
+  if (role === 'admin') return t.roleAdminLabel;
+  return role;
+};
+
+const getMenuItems = (role: string, t: Record<string, string>) => {
   const commonItems = [
-    { title: 'Tableau de bord', url: '/dashboard', icon: Home },
-    { title: 'Mon profil', url: '/profile', icon: User },
+    { title: t.sidebarDashboard, url: '/dashboard', icon: Home },
+    { title: t.sidebarProfile, url: '/profile', icon: User },
   ];
   const clientItems = [
-    { title: 'Nouvelle demande', url: '/new-request', icon: Package2 },
-    { title: 'Mes demandes', url: '/client/requests', icon: List },
-    { title: 'Mes transports', url: '/tracking', icon: MapPin },
-    { title: 'Mes factures', url: '/invoices', icon: CreditCard },
+    { title: t.sidebarNewRequest, url: '/new-request', icon: Package2 },
+    { title: t.sidebarMyRequests, url: '/client/requests', icon: List },
+    { title: t.sidebarMyTracking, url: '/tracking', icon: MapPin },
+    { title: t.sidebarMyInvoices, url: '/invoices', icon: CreditCard },
   ];
   const partnerItems = [
-    { title: 'Demandes disponibles', url: '/available-requests', icon: Eye },
-    { title: 'Mes transports', url: '/partner-transports', icon: Truck },
-    { title: 'Suivi partenaire', url: '/partner-tracking/[id]', icon: MapPin },
-    { title: 'Mes factures', url: '/partner-invoices', icon: CreditCard },
+    { title: t.sidebarAvailableRequests, url: '/available-requests', icon: Eye },
+    { title: t.sidebarPartnerTransports, url: '/partner-transports', icon: Truck },
+    { title: t.sidebarPartnerTracking, url: '/partner-tracking/[id]', icon: MapPin },
+    { title: t.sidebarPartnerInvoices, url: '/partner-invoices', icon: CreditCard },
   ];
   const adminItems = [
-    { title: 'Gestion utilisateurs', url: '/admin/users', icon: UserCog },
-    { title: 'Toutes les demandes', url: '/admin/requests', icon: FileText },
-    { title: 'Toutes les factures', url: '/admin/invoices', icon: CreditCard },
-    { title: 'Analyses', url: '/admin/analytics', icon: BarChart3 },
+    { title: t.sidebarAdminUsers, url: '/admin/users', icon: UserCog },
+    { title: t.sidebarAdminRequests, url: '/admin/requests', icon: FileText },
+    { title: t.sidebarAdminInvoices, url: '/admin/invoices', icon: CreditCard },
+    { title: t.sidebarAdminAnalytics, url: '/admin/analytics', icon: BarChart3 },
   ];
 
   if (role === 'client') return [...commonItems, ...clientItems];
@@ -67,6 +74,7 @@ export function AppSidebar() {
   const [loading, setLoading] = useState(false);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const fetchUserInfo = async () => {
     try {
@@ -102,31 +110,32 @@ export function AppSidebar() {
     }
   };
 
-  const menuItems = getMenuItems(userInfo?.role || '');
+  const menuItems = useMemo(() => getMenuItems(userInfo?.role || '', t), [userInfo?.role, t]);
 
   return (
     <aside
       className={cn(
         'flex flex-col justify-between h-[90vh] shadow-xl transition-all duration-300',
         collapsed ? 'w-20 px-2' : 'w-64 px-4',
-        'py-6 bg-gradient-to-br from-blue-900 via-blue-800 to-blue-700 rounded-3xl m-4'
+        'py-6 rounded-3xl m-4',
+        'bg-exv-panel border border-exv-border text-exv-text'
       )}
     >
       <div className="space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-orange-500 to-yellow-400 p-2 rounded-2xl shadow">
-              <Truck className="h-6 w-6 text-white" />
+            <div className="p-2 rounded-2xl bg-gradient-to-r from-exv-accent to-exv-dark">
+              <Truck className="h-6 w-6" color="#0B161C" />
             </div>
             {!collapsed && userInfo && (
-              <div className="text-white">
-                <h2 className="text-base font-bold leading-tight">Exvoral</h2>
-                <span className="text-xs bg-white/10 px-2 py-1 rounded-full capitalize">
-                  {userInfo.role}
+              <div className="text-exv-text">
+                <h2 className="text-base font-bold leading-tight">Exvoral Transport</h2>
+                <span className="text-xs bg-exv-card px-2 py-1 rounded-full border border-exv-border capitalize">
+                  {roleLabel(userInfo.role, t)}
                 </span>
-                <div className="text-xs mt-1">
-                  Bonjour, {userInfo.first_name} {userInfo.last_name}
+                <div className="text-xs mt-1 text-exv-sub">
+                  {t.hello}, {userInfo.first_name} {userInfo.last_name}
                 </div>
               </div>
             )}
@@ -135,7 +144,7 @@ export function AppSidebar() {
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed(!collapsed)}
-            className="text-white hover:text-orange-400"
+            className="text-exv-text hover:text-exv-accent"
           >
             {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </Button>
@@ -146,17 +155,17 @@ export function AppSidebar() {
           {menuItems.map((item) => (
             <NavLink
               to={item.url}
-              key={item.title}
+              key={item.url}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium',
+                  'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors',
                   isActive
-                    ? 'bg-orange-400 text-white shadow-inner'
-                    : 'text-white hover:bg-blue-600/40 hover:text-white'
+                    ? 'bg-exv-accent text-exv-primary shadow-inner'
+                    : 'text-exv-sub hover:bg-exv-card hover:text-exv-text'
                 )
               }
             >
-              <item.icon className="h-5 w-5 text-white" />
+              <item.icon className={cn('h-5 w-5', 'text-current')} />
               {!collapsed && <span>{item.title}</span>}
             </NavLink>
           ))}
@@ -168,15 +177,11 @@ export function AppSidebar() {
         <Button
           onClick={handleLogout}
           variant="ghost"
-          className="flex w-full items-center gap-3 text-white hover:text-red-500 hover:bg-red-500/10 rounded-xl py-2 px-4 transition-all"
+          className="flex w-full items-center gap-3 text-exv-text hover:text-red-500 hover:bg-red-500/10 rounded-xl py-2 px-4 transition-all"
           disabled={loading}
         >
-          {loading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <Settings className="h-5 w-5" />
-          )}
-          {!collapsed && <span>{loading ? 'Déconnexion...' : 'Déconnexion'}</span>}
+          {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Settings className="h-5 w-5" />}
+          {!collapsed && <span>{loading ? t.loggingOut : t.logout}</span>}
         </Button>
       </div>
     </aside>
