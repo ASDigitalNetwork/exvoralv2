@@ -1,4 +1,6 @@
+// tailwind.config.ts
 import type { Config } from "tailwindcss";
+import animate from "tailwindcss-animate"; // ✅ remplace le require()
 
 const config: Config = {
   darkMode: ["class"],
@@ -12,19 +14,26 @@ const config: Config = {
     container: {
       center: true,
       padding: "2rem",
-      screens: {
-        "2xl": "1400px",
-      },
+      screens: { "2xl": "1400px" },
     },
     extend: {
       colors: {
         // Custom fixed brand colors
         brand: {
-          blue: "#103dbf", // Bleu foncé
-          orange: "#ff8a1f", // Orange
-          light: "#f7f9fc", // Fond clair
+          blue: "#103dbf",
+          orange: "#ff8a1f",
+          light: "#f7f9fc",
         },
-
+        exv: {
+          primary: "#0B161C",
+          dark: "#344B5D",
+          accent: "#5E778B",
+          card: "#12232C",
+          panel: "#0F1C23",
+          border: "#2A3C49",
+          text: "#EAF1F5",
+          sub: "#C9D6DF",
+        },
         // Theme variables
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -104,7 +113,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [animate],
 };
 
 export default config;
