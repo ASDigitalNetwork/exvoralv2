@@ -25,46 +25,43 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const session = await account.get();
+        setIsAuthenticated(true);
+        const userId = session.$id;
 
-useEffect(() => {
-  const fetchUser = async () => {
-    try {
-      const session = await account.get();
-      setIsAuthenticated(true);
-      const userId = session.$id;
+        const res = await databases.listDocuments('transport_db', 'user_profiles', [
+          Query.equal('user_id', [userId]),
+        ]);
 
-      const res = await databases.listDocuments('transport_db', 'user_profiles', [
-        Query.equal('user_id', [userId]),
-      ]);
+        if (!res.documents.length) {
+          throw new Error(t.errProfileNotFound);
+        }
 
-      if (!res.documents.length) {
-        throw new Error("Profil utilisateur introuvable");
+        const profile = res.documents[0];
+        const isPartner = profile.role === 'partner';
+
+        setUser({
+          id: profile.$id,
+          email: profile.email,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          role: profile.role,
+          isValidated: isPartner ? Boolean(profile.is_validated) : true,
+        });
+      } catch (error) {
+        console.error('Erreur lors de la récupération de l’utilisateur :', error);
+        window.location.href = '/auth';
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      const profile = res.documents[0];
-
-      const isPartner = profile.role === 'partner';
-
-      setUser({
-        id: profile.$id,
-        email: profile.email,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        role: profile.role,
-        isValidated: isPartner ? Boolean(profile.is_validated) : true,
-      });
-    } catch (error) {
-      console.error("Erreur lors de la récupération de l'utilisateur :", error);
-      window.location.href = '/auth';
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  fetchUser();
-}, []);
-
-
+    fetchUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLogout = async () => {
     await account.deleteSession('current');
@@ -77,8 +74,9 @@ useEffect(() => {
       <Layout showSidebar={true}>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">{t.loading}</p>
+            {/* Spinner aux couleurs de la charte */}
+            <div className="animate-spin rounded-full h-12 w-12 border-2 border-exv-accent border-t-transparent mx-auto mb-4" aria-label={t.loading} />
+            <p className="text-exv-sub">{t.loading}</p>
           </div>
         </div>
       </Layout>
@@ -88,10 +86,8 @@ useEffect(() => {
   if (!user) return null;
 
   if (!isLoading && !isAuthenticated) {
-  return null;
-}
-
-
+    return null;
+  }
 
   if (!user.isValidated) {
     return <PendingApproval userEmail={user.email} onLogout={handleLogout} />;

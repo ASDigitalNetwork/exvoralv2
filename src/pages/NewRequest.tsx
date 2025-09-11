@@ -1,7 +1,6 @@
-// NewRequest.tsx
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -46,25 +45,27 @@ import { account, databases, storage } from '@/lib/appwrite';
 import { ID } from 'appwrite';
 import { useTranslation } from '@/hooks/useTranslation';
 
-const schema = z.object({
-  pickupAddress: z.string().min(1),
-  destinationAddress: z.string().min(1),
-  description: z.string().optional(),
-  packageType: z.string().min(1),
-  packageHeight: z.coerce.number().min(0.1),
-  packageWidth: z.coerce.number().min(0.1),
-  packageDepth: z.coerce.number().min(0.1),
-  packageWeight: z.coerce.number().min(0.1),
-  pickupDate: z.date(),
-  deliveryDate: z.date(),
-  file: z.any().optional()
-});
-
-type FormData = z.infer<typeof schema>;
-
 export default function NewRequest() {
   const navigate = useNavigate();
   const { t } = useTranslation();
+
+  // Schéma avec messages i18n
+  const schema = useMemo(() => z.object({
+    pickupAddress: z.string().min(1, t.errPickupRequired),
+    destinationAddress: z.string().min(1, t.errDestinationRequired),
+    description: z.string().optional(),
+    packageType: z.string().min(1, t.errPackageTypeRequired),
+    packageHeight: z.coerce.number().min(0.1, t.errHeightMin),
+    packageWidth: z.coerce.number().min(0.1, t.errWidthMin),
+    packageDepth: z.coerce.number().min(0.1, t.errDepthMin),
+    packageWeight: z.coerce.number().min(0.1, t.errWeightMin),
+    pickupDate: z.date(),
+    deliveryDate: z.date(),
+    file: z.any().optional()
+  }), [t]);
+
+  type FormData = z.infer<typeof schema>;
+
   const [userId, setUserId] = useState<string | null>(null);
   const [routeData, setRouteData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -87,18 +88,23 @@ export default function NewRequest() {
     },
   });
 
+  const formatEUR = useMemo(
+    () => (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n),
+    []
+  );
+
   useEffect(() => {
     const fetchUser = async () => {
       try {
         const session = await account.get();
         setUserId(session.$id);
       } catch (err) {
-        toast.error("Utilisateur non connecté");
+        toast.error(t.toastUserNotConnected);
         navigate("/auth");
       }
     };
     fetchUser();
-  }, [navigate]);
+  }, [navigate, t]);
 
   const calculatePrice = (distance: number, volume: number, weight: number): number => {
     const basePrice = 50;
@@ -128,7 +134,7 @@ export default function NewRequest() {
       setRouteData({ km, vol, price, start, end });
     } catch (e) {
       console.error(e);
-      toast.error("Erreur lors du calcul de l'itinéraire");
+      toast.error(t.toastRouteError);
     } finally {
       setIsCalculating(false);
     }
@@ -158,169 +164,186 @@ export default function NewRequest() {
         created_at: new Date().toISOString(),
         file_id: fileId
       });
-      toast.success("🎉 Votre demande a bien été créée ! Vous pouvez la suivre dans l'onglet Mes transports.");
+      toast.success(t.toastCreatedSuccess);
       navigate('/client/requests');
     } catch (e: any) {
       console.error("Erreur lors de la création:", e);
-      toast.error(e.message || "Erreur lors de la création de la demande");
+      toast.error(e?.message || t.toastCreateError);
     } finally {
       setIsLoading(false);
     }
   };
-const getZoomLevel = (distanceKm: number) => {
-  if (distanceKm < 10) return 13;
-  if (distanceKm < 50) return 10;
-  if (distanceKm < 100) return 9;
-  if (distanceKm < 200) return 8;
-  if (distanceKm < 500) return 7;
-  if (distanceKm < 1000) return 6;
-  return 5;
-};
+
+  const getZoomLevel = (distanceKm: number) => {
+    if (distanceKm < 10) return 13;
+    if (distanceKm < 50) return 10;
+    if (distanceKm < 100) return 9;
+    if (distanceKm < 200) return 8;
+    if (distanceKm < 500) return 7;
+    if (distanceKm < 1000) return 6;
+    return 5;
+  };
 
   return (
     <Layout showSidebar>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Formulaire */}
         <div className="lg:col-span-2 space-y-6">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField control={form.control} name="pickupAddress" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Adresse de prise en charge</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Adresse complète" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+          <Card className="border border-exv-border bg-exv-panel text-exv-text">
+            <CardHeader>
+              <CardTitle className="text-exv-text">{t.newRequestTitle}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                  {/* Pickup */}
+                  <FormField control={form.control} name="pickupAddress" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-exv-text">{t.pickupAddressLabel}</FormLabel>
+                      <FormControl>
+                        <Input placeholder={t.addressPlaceholder} {...field} className="bg-white text-black" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
 
-              <FormField control={form.control} name="destinationAddress" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Adresse de destination</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Adresse complète" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+                  {/* Destination */}
+                  <FormField control={form.control} name="destinationAddress" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-exv-text">{t.destinationAddressLabel}</FormLabel>
+                      <FormControl>
+                        <Input placeholder={t.addressPlaceholder} {...field} className="bg-white text-black" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
 
-              <FormField control={form.control} name="packageType" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Type de colis</FormLabel>
-                  <FormControl>
-                    <Input placeholder="ex: palette, boîte, caisse..." {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+                  {/* Type colis */}
+                  <FormField control={form.control} name="packageType" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-exv-text">{t.packageTypeLabel}</FormLabel>
+                      <FormControl>
+                        <Input placeholder={t.packageTypePlaceholder} {...field} className="bg-white text-black" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <FormField control={form.control} name="packageHeight" render={({ field }) => (
+                  {/* Dimensions + poids */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <FormField control={form.control} name="packageHeight" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-exv-text">{t.heightCm}</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} className="bg-white text-black" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="packageWidth" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-exv-text">{t.widthCm}</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} className="bg-white text-black" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="packageDepth" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-exv-text">{t.depthCm}</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} className="bg-white text-black" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="packageWeight" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-exv-text">{t.weightKg}</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} className="bg-white text-black" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+
+                  {/* Dates */}
+                    <FormField control={form.control} name="pickupDate" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-black">{t.pickupDateLabel}</FormLabel>
+                        <FormControl className="text-black">
+                          <DatePicker date={field.value} onDateChange={field.onChange} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+
+                    <FormField control={form.control} name="deliveryDate" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-black">{t.deliveryDateLabel}</FormLabel>
+                        <FormControl className="text-black">
+                          <DatePicker date={field.value} onDateChange={field.onChange} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+
+                  {/* Fichier */}
                   <FormItem>
-                    <FormLabel>Hauteur (cm)</FormLabel>
+                    <FormLabel className="text-exv-text">{t.attachImageOptional}</FormLabel>
                     <FormControl>
-                      <Input type="number" {...field} />
+                      <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="bg-white text-black" />
                     </FormControl>
-                    <FormMessage />
                   </FormItem>
-                )} />
-                <FormField control={form.control} name="packageWidth" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Largeur (cm)</FormLabel>
-                    <FormControl>
-                      <Input type="number" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="packageDepth" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Profondeur (cm)</FormLabel>
-                    <FormControl>
-                      <Input type="number" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="packageWeight" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Poids (kg)</FormLabel>
-                    <FormControl>
-                      <Input type="number" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
 
-              <FormField control={form.control} name="pickupDate" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Date de prise en charge</FormLabel>
-                  <FormControl>
-                    <DatePicker date={field.value} onDateChange={field.onChange} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+                  {/* Actions */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <Button
+                      type="button"
+                      disabled={isCalculating}
+                      onClick={() => calculateRoute(form.getValues('pickupAddress'), form.getValues('destinationAddress'))}
+                      className="bg-exv-accent hover:opacity-90 text-exv-primary font-semibold px-4 py-2 rounded-xl shadow"
+                    >
+                      {isCalculating ? t.btnCalculating : t.btnCalcDistancePrice}
+                    </Button>
 
-              <FormField control={form.control} name="deliveryDate" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Date de livraison</FormLabel>
-                  <FormControl>
-                    <DatePicker date={field.value} onDateChange={field.onChange} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-
-              <FormItem>
-                <FormLabel>Joindre une image (optionnel)</FormLabel>
-                <FormControl>
-                  <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                </FormControl>
-              </FormItem>
-
-              <Button
-                  type="button"
-                  disabled={isCalculating}
-                  onClick={() => calculateRoute(form.getValues('pickupAddress'), form.getValues('destinationAddress'))}
-                  className="bg-orange-400 hover:bg-orange-500 text-white font-semibold px-4 py-2 rounded-xl shadow"
-                >
-                  {isCalculating ? 'Calcul en cours...' : 'Calculer la distance et le prix'}
-                </Button>
-
-                <Button
-                  type="submit"
-                  disabled={!routeData || isLoading}
-                  className="w-full bg-blue-900 hover:bg-blue-800 text-white font-semibold px-4 py-2 rounded-xl shadow"
-                >
-                  {isLoading ? 'Création...' : 'Créer la demande'}
-              </Button>
-
-            </form>
-          </Form>
+                    <Button
+                      type="submit"
+                      disabled={!routeData || isLoading}
+                      className="bg-exv-dark hover:opacity-90 text-exv-text font-semibold px-4 py-2 rounded-xl shadow"
+                    >
+                      {isLoading ? t.btnCreating : t.btnCreateRequest}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
         </div>
 
+        {/* Panneau de droite */}
         <div className="space-y-6">
           {routeData && (
-            <Card className="border border-blue-200 shadow-md rounded-xl">
-              <CardHeader className="bg-blue-900 text-white rounded-t-xl">
-                <CardTitle>Résumé</CardTitle>
+            <Card className="border border-exv-border shadow-md rounded-xl bg-exv-card text-exv-text">
+              <CardHeader className="bg-exv-panel text-exv-text rounded-t-xl border-b border-exv-border">
+                <CardTitle>{t.summaryTitle}</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-blue-900 font-medium">
-                <p><strong>Distance</strong>: {routeData.km} km</p>
-                <p><strong>Volume</strong>: {routeData.vol.toFixed(3)} m³</p>
-                <p><strong>Prix estimé</strong>: <span className="text-orange-500 font-bold">{routeData.price} €</span></p>
+              <CardContent className="space-y-2 text-exv-text">
+                <p><strong>{t.summaryDistance}</strong>: {routeData.km} km</p>
+                <p><strong>{t.summaryVolume}</strong>: {routeData.vol.toFixed(3)} m³</p>
+                <p><strong>{t.summaryEstimatedPrice}</strong>: <span className="text-exv-accent font-bold">{formatEUR(routeData.price)}</span></p>
               </CardContent>
             </Card>
-
           )}
 
           {routeData?.start && routeData?.end && (
-            <div className="relative w-full h-64 rounded-xl overflow-hidden border border-blue-200 shadow">
+            <div className="relative w-full h-64 rounded-xl overflow-hidden border border-exv-border shadow">
               <img
                 className="absolute inset-0 object-cover w-full h-full"
                 src={`https://static-maps.yandex.ru/1.x/?lang=fr_FR&l=map&pt=${routeData.start[0]},${routeData.start[1]},pm2blm~${routeData.end[0]},${routeData.end[1]},pm2grm&z=${getZoomLevel(routeData.km)}&size=650,450`}
-                alt="Carte des points"
+                alt="Map"
               />
             </div>
           )}
