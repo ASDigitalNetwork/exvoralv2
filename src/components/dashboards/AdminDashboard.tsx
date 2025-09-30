@@ -1,207 +1,189 @@
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Users, 
-  Truck, 
-  Euro, 
-  Activity, 
-  CheckCircle, 
-  XCircle, 
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Users,
+  Truck,
+  Euro,
+  Activity,
+  CheckCircle,
+  XCircle,
   Clock,
-  FileText,
-  Settings,
-  BarChart3
-} from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useTranslation } from '@/hooks/useTranslation';
-import { toast } from 'sonner';
+  BarChart3,
+} from "lucide-react";
+import { databases } from "@/lib/appwrite";
+import { Query } from "appwrite";
+import { useTranslation } from "@/hooks/useTranslation";
 
-interface Stats {
-  totalRequests: number;
-  pendingRequests: number;
-  completedRequests: number;
-  totalRevenue: number;
-  activePartners: number;
-  totalUsers: number;
-}
+type UserDoc = {
+  $id: string;
+  first_name?: string;
+  last_name?: string;
+  phone_number?: string;
+  is_validated?: boolean;
+  role?: "client" | "partner" | "admin" | string;
+  email?: string; // si stocké
+  contact_email?: string; // fallback si existant
+  created_at?: string; // facultatif selon ton schéma
+  $createdAt?: string;
+};
 
-interface User {
-  id: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  phone_number: string;
-  is_validated: boolean;
-  role: string;
-  created_at: string;
-}
-
-interface TransportRequest {
-  id: string;
-  pickup_address: string;
-  destination_address: string;
+type RequestDoc = {
+  $id: string;
+  client_id?: string;
+  pickup_location?: string;
+  dropoff_location?: string;
+  distance_km?: number;
   status: string;
-  distance_km: number;
-  estimated_price: number;
-  created_at: string;
-  client_email: string;
-  package_type: string;
-  package_weight: number;
-}
+  package_type?: string;
+  package_weight?: number;
+  price_client?: number;        // utilisé dans tes pages
+  estimated_price?: number;     // fallback si tu as un autre champ
+  created_at?: string;
+  $createdAt?: string;
+};
 
-interface Invoice {
-  id: string;
-  amount: number;
-  status: string;
-  payment_date: string;
-  transport_request_id: string;
-  client_email: string;
-  partner_email: string;
-  created_at: string;
-}
+type InvoiceDoc = {
+  $id: string;
+  amount?: number;
+  status?: string; // paid / unpaid / ...
+  payment_date?: string | null;
+  transport_request_id?: string;
+  client_id?: string;
+  partner_id?: string;
+  created_at?: string;
+  $createdAt?: string;
+};
+
+const DB_ID = "transport_db";
+const COL_USERS = "user_profiles";
+const COL_REQUESTS = "transports_requests";
+const COL_INVOICES = "invoices";
 
 export default function AdminDashboard() {
   const { t } = useTranslation();
-  const [stats, setStats] = useState<Stats>({
-    totalRequests: 0,
-    pendingRequests: 0,
-    completedRequests: 0,
-    totalRevenue: 0,
-    activePartners: 0,
-    totalUsers: 0,
-  });
-  const [users, setUsers] = useState<User[]>([]);
-  const [requests, setRequests] = useState<TransportRequest[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  const [users, setUsers] = useState<UserDoc[]>([]);
+  const [requests, setRequests] = useState<RequestDoc[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceDoc[]>([]);
 
-  const loadDashboardData = async () => {
+  const stats = useMemo(() => {
+    const totalRequests = requests.length;
+    const pendingRequests = requests.filter((r) => r.status === "pending").length;
+    const completedRequests = requests.filter((r) =>
+      ["delivered", "completed"].includes(r.status)
+    ).length;
+
+    const paidStatuses = new Set(["paid", "settled", "paid_out"]);
+    const totalRevenue =
+      invoices
+        .filter((i) => (i.status ? paidStatuses.has(i.status) : false))
+        .reduce((sum, i) => sum + (i.amount || 0), 0) || 0;
+
+    const activePartners = users.filter(
+      (u) => u.role === "partner" && u.is_validated
+    ).length;
+
+    return {
+      totalRequests,
+      pendingRequests,
+      completedRequests,
+      totalRevenue,
+      activePartners,
+      totalUsers: users.length,
+    };
+  }, [users, requests, invoices]);
+
+  const safeDate = (item: { created_at?: string; $createdAt?: string }) =>
+    item?.created_at || item?.$createdAt || "";
+
+  const short = (s?: string) => (s ? (s.length > 30 ? s.slice(0, 30) + "…" : s) : "—");
+
+  const displayPrice = (r: RequestDoc) =>
+    (r.price_client ?? r.estimated_price ?? 0).toFixed(2);
+
+  const statusBadge = (status: string) => {
+    const map: Record<
+      string,
+      { variant: "default" | "secondary" | "destructive"; label: string }
+    > = {
+      pending: { variant: "secondary", label: t.statusPending },
+      validated: { variant: "default", label: t.statusValidated || "Validée" },
+      in_progress: { variant: "default", label: t.statusInProgress },
+      delivered: { variant: "default", label: t.statusDelivered },
+      canceled: { variant: "destructive", label: t.statusCanceled },
+      cancelled: { variant: "destructive", label: t.statusCanceled },
+      paid: { variant: "default", label: t.paid || "Payée" },
+    };
+    const conf = map[status] || { variant: "secondary", label: status };
+    return <Badge variant={conf.variant}>{conf.label}</Badge>;
+  };
+
+  const load = async () => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-
-      // Charger les statistiques
-      const [
-        { data: requestsData },
-        { data: invoicesData },
-        { data: usersData },
-      ] = await Promise.all([
-        supabase.from('transport_requests').select('status, estimated_price'),
-        supabase.from('invoices').select('amount, status'),
-        supabase.from('profiles').select('id'),
+      // Users
+      const usersRes = await databases.listDocuments(DB_ID, COL_USERS, [
+        Query.orderDesc("$createdAt"),
+        Query.limit(500),
       ]);
+      const userDocs = usersRes.documents as unknown as UserDoc[];
+      setUsers(userDocs);
 
-      const totalRequests = requestsData?.length || 0;
-      const pendingRequests = requestsData?.filter(r => r.status === 'pending').length || 0;
-      const completedRequests = requestsData?.filter(r => r.status === 'delivered').length || 0;
-      const totalRevenue = invoicesData?.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.amount, 0) || 0;
+      // Requests
+      const reqRes = await databases.listDocuments(DB_ID, COL_REQUESTS, [
+        Query.orderDesc("$createdAt"),
+        Query.limit(500),
+      ]);
+      const reqDocs = reqRes.documents as unknown as RequestDoc[];
+      setRequests(reqDocs);
 
-      setStats({
-        totalRequests,
-        pendingRequests,
-        completedRequests,
-        totalRevenue,
-        activePartners: 0, // À calculer selon vos besoins
-        totalUsers: usersData?.length || 0,
-      });
-
-      // Charger les utilisateurs avec leurs rôles
-      const { data: usersWithRoles } = await supabase
-        .from('profiles')
-        .select(`
-          id,
-          email,
-          first_name,
-          last_name,
-          phone_number,
-          is_validated,
-          created_at,
-          user_roles (role)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      setUsers(usersWithRoles?.map(user => ({
-        ...user,
-        role: Array.isArray(user.user_roles) ? user.user_roles[0]?.role || 'client' : 'client'
-      })) || []);
-
-      // Charger les demandes récentes
-      const { data: recentRequests } = await supabase
-        .from('transport_requests')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      setRequests(recentRequests?.map(req => ({
-        ...req,
-        client_email: 'N/A'
-      })) || []);
-
-      // Charger les factures récentes
-      const { data: recentInvoices } = await supabase
-        .from('invoices')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      setInvoices(recentInvoices?.map(inv => ({
-        ...inv,
-        client_email: 'N/A',
-        partner_email: 'N/A'
-      })) || []);
-
-    } catch (error) {
-      console.error('Erreur lors du chargement du dashboard:', error);
-      toast.error('Erreur lors du chargement des données');
+      // Invoices (si la collection existe)
+      try {
+        const invRes = await databases.listDocuments(DB_ID, COL_INVOICES, [
+          Query.orderDesc("$createdAt"),
+          Query.limit(500),
+        ]);
+        const invDocs = invRes.documents as unknown as InvoiceDoc[];
+        setInvoices(invDocs);
+      } catch {
+        setInvoices([]); // Si pas de collection, on ignore
+      }
+    } catch (e) {
+      console.error(e);
+      // Pas de toast ici pour rester discret si la collection "invoices" n'existe pas
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleValidateUser = async (userId: string, validate: boolean) => {
+  useEffect(() => {
+    load();
+  }, []);
+
+  const validateUser = async (userDocId: string, validated: boolean) => {
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ is_validated: validate })
-        .eq('id', userId);
-
-      if (error) throw error;
-
-      toast.success(`Utilisateur ${validate ? 'validé' : 'rejeté'} avec succès`);
-      loadDashboardData();
-    } catch (error) {
-      console.error('Erreur:', error);
-      toast.error('Erreur lors de la validation');
+      await databases.updateDocument(DB_ID, COL_USERS, userDocId, {
+        is_validated: validated,
+      });
+      await load();
+    } catch (e) {
+      console.error(e);
+      alert(t.adminActionError);
     }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      pending: { variant: 'secondary' as const, label: 'En attente' },
-      quoted: { variant: 'default' as const, label: 'Devisé' },
-      accepted: { variant: 'default' as const, label: 'Accepté' },
-      in_progress: { variant: 'default' as const, label: 'En cours' },
-      delivered: { variant: 'default' as const, label: 'Livré' },
-      cancelled: { variant: 'destructive' as const, label: 'Annulé' },
-      paid: { variant: 'default' as const, label: 'Payée' },
-    };
-
-    const config = statusConfig[status as keyof typeof statusConfig] || { variant: 'secondary' as const, label: status };
-    return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -211,165 +193,151 @@ export default function AdminDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Tableau de bord Admin</h1>
-          <p className="text-muted-foreground">
-            Vue d'ensemble de la plateforme Exvoral Transports
-          </p>
+          <h1 className="text-3xl font-bold text-foreground">{t.adminTitle}</h1>
+          <p className="text-muted-foreground">{t.adminSubtitle}</p>
         </div>
-        <Button onClick={loadDashboardData} variant="outline">
+        <Button onClick={load} variant="outline">
           <Activity className="h-4 w-4 mr-2" />
-          Actualiser
+          {t.refresh}
         </Button>
       </div>
 
-      {/* Statistiques principales */}
+      {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Demandes</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.statTotalRequests}</CardTitle>
             <Truck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalRequests}</div>
-            <p className="text-xs text-muted-foreground">
-              +20% depuis le mois dernier
-            </p>
+            <p className="text-xs text-muted-foreground">{t.statHintTotal}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">En Attente</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.statPending}</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingRequests}</div>
-            <p className="text-xs text-muted-foreground">
-              Demandes à traiter
-            </p>
+            <p className="text-xs text-muted-foreground">{t.statHintPending}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Terminées</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.statCompleted}</CardTitle>
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.completedRequests}</div>
-            <p className="text-xs text-muted-foreground">
-              Livraisons réussies
-            </p>
+            <p className="text-xs text-muted-foreground">{t.statHintCompleted}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Revenus</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.statRevenue}</CardTitle>
             <Euro className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalRevenue.toFixed(2)}€</div>
-            <p className="text-xs text-muted-foreground">
-              Revenus totaux
-            </p>
+            <p className="text-xs text-muted-foreground">{t.statHintRevenue}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Partenaires</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.statPartners}</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.activePartners}</div>
-            <p className="text-xs text-muted-foreground">
-              Partenaires actifs
-            </p>
+            <p className="text-xs text-muted-foreground">{t.statHintPartners}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Utilisateurs</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.statUsers}</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalUsers}</div>
-            <p className="text-xs text-muted-foreground">
-              Utilisateurs inscrits
-            </p>
+            <p className="text-xs text-muted-foreground">{t.statHintUsers}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Contenu principal avec onglets */}
+      {/* Tabs */}
       <Tabs defaultValue="users" className="space-y-4">
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="users">Gestion Utilisateurs</TabsTrigger>
-          <TabsTrigger value="requests">Demandes</TabsTrigger>
-          <TabsTrigger value="invoices">Factures</TabsTrigger>
-          <TabsTrigger value="analytics">Analyses</TabsTrigger>
+          <TabsTrigger value="users">{t.tabUsers}</TabsTrigger>
+          <TabsTrigger value="requests">{t.tabRequests}</TabsTrigger>
+          <TabsTrigger value="invoices">{t.tabInvoices}</TabsTrigger>
+          <TabsTrigger value="analytics">{t.tabAnalytics}</TabsTrigger>
         </TabsList>
 
+        {/* Users */}
         <TabsContent value="users" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Gestion des Utilisateurs</CardTitle>
-              <CardDescription>
-                Validez ou rejetez les inscriptions des nouveaux utilisateurs
-              </CardDescription>
+              <CardTitle>{t.usersTitle}</CardTitle>
+              <CardDescription>{t.usersDesc}</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Utilisateur</TableHead>
+                    <TableHead>{t.user}</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Rôle</TableHead>
-                    <TableHead>Statut</TableHead>
-                    <TableHead>Date d'inscription</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead>{t.role}</TableHead>
+                    <TableHead>{t.statusLabel}</TableHead>
+                    <TableHead>{t.registeredAt}</TableHead>
+                    <TableHead>{t.actions}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((user) => (
-                    <TableRow key={user.id}>
+                  {users.map((u) => (
+                    <TableRow key={u.$id}>
                       <TableCell className="font-medium">
-                        {user.first_name} {user.last_name}
+                        {(u.first_name || "—") + " " + (u.last_name || "")}
                       </TableCell>
-                      <TableCell>{user.email}</TableCell>
+                      <TableCell>{u.email || u.contact_email || "—"}</TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {user.role === 'client' ? 'Client' : 
-                           user.role === 'partner' ? 'Partenaire' : 
-                           user.role === 'admin' ? 'Admin' : user.role}
+                          {u.role === "client"
+                            ? t.roleClient
+                            : u.role === "partner"
+                            ? t.rolePartner
+                            : u.role === "admin"
+                            ? "Admin"
+                            : u.role || "-"}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {user.is_validated ? (
-                          <Badge variant="default">Validé</Badge>
+                        {u.is_validated ? (
+                          <Badge variant="default">{t.validated}</Badge>
                         ) : (
-                          <Badge variant="secondary">En attente</Badge>
+                          <Badge variant="secondary">{t.statusPending}</Badge>
                         )}
                       </TableCell>
                       <TableCell>
-                        {new Date(user.created_at).toLocaleDateString('fr-FR')}
+                        {new Date(safeDate(u)).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
-                        <div className="flex space-x-2">
-                          {!user.is_validated && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleValidateUser(user.id, true)}
-                            >
+                        <div className="flex gap-2">
+                          {!u.is_validated && (
+                            <Button size="sm" onClick={() => validateUser(u.$id, true)}>
                               <CheckCircle className="h-4 w-4" />
                             </Button>
                           )}
                           <Button
                             size="sm"
                             variant="destructive"
-                            onClick={() => handleValidateUser(user.id, false)}
+                            onClick={() => validateUser(u.$id, false)}
                           >
                             <XCircle className="h-4 w-4" />
                           </Button>
@@ -383,53 +351,52 @@ export default function AdminDashboard() {
           </Card>
         </TabsContent>
 
+        {/* Requests */}
         <TabsContent value="requests" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Demandes de Transport</CardTitle>
-              <CardDescription>
-                Toutes les demandes de transport sur la plateforme
-              </CardDescription>
+              <CardTitle>{t.requestsTitle}</CardTitle>
+              <CardDescription>{t.requestsDesc}</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Trajet</TableHead>
-                    <TableHead>Distance</TableHead>
-                    <TableHead>Type/Poids</TableHead>
-                    <TableHead>Prix estimé</TableHead>
-                    <TableHead>Statut</TableHead>
-                    <TableHead>Date</TableHead>
+                    <TableHead>{t.client}</TableHead>
+                    <TableHead>{t.route}</TableHead>
+                    <TableHead>{t.distance}</TableHead>
+                    <TableHead>{t.typeWeight}</TableHead>
+                    <TableHead>{t.estimatedPrice}</TableHead>
+                    <TableHead>{t.status}</TableHead>
+                    <TableHead>{t.date}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {requests.map((request) => (
-                    <TableRow key={request.id}>
+                  {requests.map((r) => (
+                    <TableRow key={r.$id}>
                       <TableCell className="font-medium">
-                        {request.client_email}
+                        {r.client_id || "—"}
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          <div>{request.pickup_address.substring(0, 30)}...</div>
+                          <div>{short(r.pickup_location)}</div>
                           <div className="text-muted-foreground">
-                            → {request.destination_address.substring(0, 30)}...
+                            → {short(r.dropoff_location)}
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell>{request.distance_km} km</TableCell>
+                      <TableCell>{r.distance_km ?? 0} km</TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          <div>{request.package_type}</div>
-                          <div className="text-muted-foreground">{request.package_weight} kg</div>
+                          <div>{r.package_type || "—"}</div>
+                          <div className="text-muted-foreground">
+                            {(r.package_weight || 0) + " kg"}
+                          </div>
                         </div>
                       </TableCell>
-                      <TableCell>{request.estimated_price}€</TableCell>
-                      <TableCell>{getStatusBadge(request.status)}</TableCell>
-                      <TableCell>
-                        {new Date(request.created_at).toLocaleDateString('fr-FR')}
-                      </TableCell>
+                      <TableCell>{displayPrice(r)}€</TableCell>
+                      <TableCell>{statusBadge(r.status)}</TableCell>
+                      <TableCell>{new Date(safeDate(r)).toLocaleDateString()}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -438,43 +405,43 @@ export default function AdminDashboard() {
           </Card>
         </TabsContent>
 
+        {/* Invoices */}
         <TabsContent value="invoices" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Gestion des Factures</CardTitle>
-              <CardDescription>
-                Toutes les factures et paiements de la plateforme
-              </CardDescription>
+              <CardTitle>{t.invoicesTitle}</CardTitle>
+              <CardDescription>{t.invoicesDesc}</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Partenaire</TableHead>
-                    <TableHead>Montant</TableHead>
-                    <TableHead>Statut</TableHead>
-                    <TableHead>Date paiement</TableHead>
-                    <TableHead>Date création</TableHead>
+                    <TableHead>{t.client}</TableHead>
+                    <TableHead>{t.partner}</TableHead>
+                    <TableHead>{t.amount}</TableHead>
+                    <TableHead>{t.status}</TableHead>
+                    <TableHead>{t.paymentDate}</TableHead>
+                    <TableHead>{t.createdAt}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invoices.map((invoice) => (
-                    <TableRow key={invoice.id}>
+                  {invoices.map((inv) => (
+                    <TableRow key={inv.$id}>
                       <TableCell className="font-medium">
-                        {invoice.client_email}
+                        {inv.client_id || "—"}
                       </TableCell>
-                      <TableCell>{invoice.partner_email}</TableCell>
-                      <TableCell className="font-bold">{invoice.amount}€</TableCell>
-                      <TableCell>{getStatusBadge(invoice.status)}</TableCell>
+                      <TableCell>{inv.partner_id || "—"}</TableCell>
+                      <TableCell className="font-bold">
+                        {(inv.amount || 0).toFixed(2)}€
+                      </TableCell>
+                      <TableCell>{statusBadge(inv.status || "")}</TableCell>
                       <TableCell>
-                        {invoice.payment_date ? 
-                          new Date(invoice.payment_date).toLocaleDateString('fr-FR') : 
-                          'Non payée'
-                        }
+                        {inv.payment_date
+                          ? new Date(inv.payment_date).toLocaleDateString()
+                          : t.unpaid}
                       </TableCell>
                       <TableCell>
-                        {new Date(invoice.created_at).toLocaleDateString('fr-FR')}
+                        {new Date(safeDate(inv)).toLocaleDateString()}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -484,31 +451,32 @@ export default function AdminDashboard() {
           </Card>
         </TabsContent>
 
+        {/* Analytics (placeholder, texte traduit) */}
         <TabsContent value="analytics" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <BarChart3 className="h-5 w-5" />
-                  Analyses de Performance
+                  {t.analyticsTitle}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span>Taux de conversion</span>
+                    <span>{t.convRate}</span>
                     <span className="font-bold">73%</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Satisfaction client</span>
+                    <span>{t.csat}</span>
                     <span className="font-bold">4.8/5</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Temps moyen de livraison</span>
-                    <span className="font-bold">2.3 jours</span>
+                    <span>{t.avgDelivery}</span>
+                    <span className="font-bold">2.3 {t.days}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Marge moyenne</span>
+                    <span>{t.avgMargin}</span>
                     <span className="font-bold">15%</span>
                   </div>
                 </div>
@@ -517,26 +485,26 @@ export default function AdminDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Tendances</CardTitle>
+                <CardTitle>{t.trends}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
                     <div className="flex justify-between mb-2">
-                      <span>Croissance mensuelle</span>
+                      <span>{t.monthlyGrowth}</span>
                       <span className="text-green-600 font-bold">+18%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div className="bg-green-600 h-2 rounded-full" style={{width: '75%'}}></div>
+                      <div className="bg-green-600 h-2 rounded-full" style={{ width: "75%" }} />
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between mb-2">
-                      <span>Nouveaux partenaires</span>
+                      <span>{t.newPartners}</span>
                       <span className="text-blue-600 font-bold">+12</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div className="bg-blue-600 h-2 rounded-full" style={{width: '60%'}}></div>
+                      <div className="bg-blue-600 h-2 rounded-full" style={{ width: "60%" }} />
                     </div>
                   </div>
                 </div>
