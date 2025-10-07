@@ -1,3 +1,4 @@
+// src/pages/NewRequest.tsx
 "use client";
 
 import { useMemo, useState, useEffect } from 'react';
@@ -5,39 +6,15 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import {
-  MapPin,
-  Upload,
-  Calculator,
-  ArrowLeft,
-  Package,
-  CalendarDays,
-  ImagePlus
-} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
+  Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card';
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+  Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Layout } from '@/components/Layout';
 import { toast } from 'sonner';
@@ -67,7 +44,15 @@ export default function NewRequest() {
   type FormData = z.infer<typeof schema>;
 
   const [userId, setUserId] = useState<string | null>(null);
-  const [routeData, setRouteData] = useState<any>(null);
+  const [routeData, setRouteData] = useState<{
+    km: number;
+    vol: number;
+    price: number;
+    start?: [number, number];
+    end?: [number, number];
+    lane?: string;      // "PT→PT", "PT→FR", "PT→CH", "GENERIC"
+    note?: string;      // petite note d’avertissement
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -89,7 +74,12 @@ export default function NewRequest() {
   });
 
   const formatEUR = useMemo(
-    () => (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(n),
+    () => (n: number) =>
+      new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: 'EUR',
+        maximumFractionDigits: 2,
+      }).format(n),
     []
   );
 
@@ -98,7 +88,7 @@ export default function NewRequest() {
       try {
         const session = await account.get();
         setUserId(session.$id);
-      } catch (err) {
+      } catch {
         toast.error(t.toastUserNotConnected);
         navigate("/auth");
       }
@@ -106,7 +96,47 @@ export default function NewRequest() {
     fetchUser();
   }, [navigate, t]);
 
-  const calculatePrice = (distance: number, volume: number, weight: number): number => {
+  /**
+   * ---------- TARIFS ----------
+   * D’après la grille fournie (PT national par distance/poids ; International PT→FR/CH par poids).
+   */
+  const getWeightBandIndex = (kg: number) => {
+    if (kg <= 150) return 0;
+    if (kg <= 300) return 1;
+    if (kg <= 600) return 2;
+    if (kg <= 1000) return 3;
+    return 3; // on plafonne à la tranche max et on indique "approx"
+  };
+
+  // Portugal → Portugal (distance vs poids)
+  const tariffPTPT = (distanceKm: number, weightKg: number) => {
+    const w = getWeightBandIndex(weightKg);
+    let row: number[] = [];
+    if (distanceKm <= 50)      row = [45, 60, 80, 100];
+    else if (distanceKm <= 150)row = [60, 80, 110, 140];
+    else if (distanceKm <= 300)row = [80, 100, 130, 160];
+    else if (distanceKm <= 600)row = [120, 150, 180, 220];
+    else                       row = [160, 190, 230, 280];
+    const base = row[w];
+    return { price: base, approx: weightKg > 1000 };
+  };
+
+  // Portugal → France (par poids)
+  const tariffPTFR = (weightKg: number) => {
+    const rows = [180, 220, 280, 340];
+    const w = getWeightBandIndex(weightKg);
+    return { price: rows[w], approx: weightKg > 1000 };
+  };
+
+  // Portugal → Suisse (par poids)
+  const tariffPTCH = (weightKg: number) => {
+    const rows = [250, 300, 380, 450];
+    const w = getWeightBandIndex(weightKg);
+    return { price: rows[w], approx: weightKg > 1000 };
+  };
+
+  // Ancien fallback générique (si itinéraire hors cas pris en charge)
+  const genericFormula = (distance: number, volume: number, weight: number): number => {
     const basePrice = 50;
     const distancePrice = distance * 1.2;
     const volumePrice = volume * 100;
@@ -114,24 +144,105 @@ export default function NewRequest() {
     return Math.round((basePrice + distancePrice + Math.max(volumePrice, weightPrice)) * 100) / 100;
   };
 
+  // Détermine prix + type de corridor utilisé
+  const computeTariffPrice = (km: number, vol: number, kg: number, from: string, to: string) => {
+    const ccFrom = (from || '').toLowerCase();
+    const ccTo = (to || '').toLowerCase();
+
+    // PT → PT
+    if (ccFrom === 'pt' && ccTo === 'pt') {
+      const { price, approx } = tariffPTPT(km, kg);
+      return {
+        price,
+        lane: 'PT→PT',
+        note: approx ? t.noteHeavyApprox : undefined,
+      };
+    }
+
+    // PT → FR
+    if (ccFrom === 'pt' && ccTo === 'fr') {
+      const { price, approx } = tariffPTFR(kg);
+      return {
+        price,
+        lane: 'PT→FR',
+        note: approx ? t.noteHeavyApprox : t.noteIntlFR,
+      };
+    }
+
+    // PT → CH
+    if (ccFrom === 'pt' && ccTo === 'ch') {
+      const { price, approx } = tariffPTCH(kg);
+      return {
+        price,
+        lane: 'PT→CH',
+        note: approx ? t.noteHeavyApprox : t.noteIntlCH,
+      };
+    }
+
+    // Fallback générique
+    const fallback = genericFormula(km, vol, kg);
+    return {
+      price: fallback,
+      lane: 'GENERIC',
+      note: t.noteGenericLane,
+    };
+  };
+
+  /**
+   * ---------- DISTANCE ----------
+   * On conserve ta logique (OSRM). On ajoute addressdetails=1 pour récupérer les pays.
+   */
   const calculateRoute = async (pickup: string, destination: string) => {
     setIsCalculating(true);
     try {
       const geo = async (addr: string) => {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`);
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(
+            addr
+          )}&limit=1`,
+          { headers: { 'Accept-Language': 'fr' } }
+        );
         const data = await res.json();
-        return [parseFloat(data[0].lon), parseFloat(data[0].lat)];
+        if (!data?.[0]) throw new Error('Geocoding failed');
+        const lon = parseFloat(data[0].lon);
+        const lat = parseFloat(data[0].lat);
+        const cc = data[0]?.address?.country_code as string | undefined;
+        return { coord: [lon, lat] as [number, number], country_code: cc || '' };
       };
 
-      const [start, end] = await Promise.all([geo(pickup), geo(destination)]);
+      const [startObj, endObj] = await Promise.all([geo(pickup), geo(destination)]);
+
       const routeRes = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${start[0]},${start[1]};${end[0]},${end[1]}?overview=simplified&geometries=geojson`
+        `https://router.project-osrm.org/route/v1/driving/${startObj.coord[0]},${startObj.coord[1]};${endObj.coord[0]},${endObj.coord[1]}?overview=simplified&geometries=geojson`
       );
       const route = await routeRes.json();
       const km = Math.round(route.routes[0].distance / 1000);
-      const vol = (form.getValues('packageHeight') / 100) * (form.getValues('packageWidth') / 100) * (form.getValues('packageDepth') / 100);
-      const price = calculatePrice(km, vol, form.getValues('packageWeight'));
-      setRouteData({ km, vol, price, start, end });
+
+      // volume m³ (cm -> m)
+      const vol =
+        (form.getValues('packageHeight') / 100) *
+        (form.getValues('packageWidth') / 100) *
+        (form.getValues('packageDepth') / 100);
+
+      const weight = form.getValues('packageWeight');
+
+      const { price, lane, note } = computeTariffPrice(
+        km,
+        vol,
+        weight,
+        startObj.country_code,
+        endObj.country_code
+      );
+
+      setRouteData({
+        km,
+        vol,
+        price: Math.round(price * 100) / 100,
+        start: startObj.coord,
+        end: endObj.coord,
+        lane,
+        note,
+      });
     } catch (e) {
       console.error(e);
       toast.error(t.toastRouteError);
@@ -144,7 +255,7 @@ export default function NewRequest() {
     if (!routeData || !userId) return;
     try {
       setIsLoading(true);
-      let fileId = null;
+      let fileId: string | null = null;
       if (file) {
         const uploaded = await storage.createFile('request_files', ID.unique(), file);
         fileId = uploaded.$id;
@@ -187,7 +298,7 @@ export default function NewRequest() {
   return (
     <Layout showSidebar>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Formulaire */}
+        {/* Formulaire (inchangé) */}
         <div className="lg:col-span-2 space-y-6">
           <Card className="border border-exv-border bg-exv-panel text-exv-text">
             <CardHeader>
@@ -270,25 +381,24 @@ export default function NewRequest() {
                   </div>
 
                   {/* Dates */}
-                    <FormField control={form.control} name="pickupDate" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-black">{t.pickupDateLabel}</FormLabel>
-                        <FormControl className="text-black">
-                          <DatePicker date={field.value} onDateChange={field.onChange} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-
-                    <FormField control={form.control} name="deliveryDate" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-black">{t.deliveryDateLabel}</FormLabel>
-                        <FormControl className="text-black">
-                          <DatePicker date={field.value} onDateChange={field.onChange} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                  <FormField control={form.control} name="pickupDate" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-black">{t.pickupDateLabel}</FormLabel>
+                      <FormControl className="text-black">
+                        <DatePicker date={field.value} onDateChange={field.onChange} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="deliveryDate" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-black">{t.deliveryDateLabel}</FormLabel>
+                      <FormControl className="text-black">
+                        <DatePicker date={field.value} onDateChange={field.onChange} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
 
                   {/* Fichier */}
                   <FormItem>
@@ -323,7 +433,7 @@ export default function NewRequest() {
           </Card>
         </div>
 
-        {/* Panneau de droite */}
+        {/* Panneau de droite (inchangé visuel) + notes */}
         <div className="space-y-6">
           {routeData && (
             <Card className="border border-exv-border shadow-md rounded-xl bg-exv-card text-exv-text">
@@ -334,6 +444,22 @@ export default function NewRequest() {
                 <p><strong>{t.summaryDistance}</strong>: {routeData.km} km</p>
                 <p><strong>{t.summaryVolume}</strong>: {routeData.vol.toFixed(3)} m³</p>
                 <p><strong>{t.summaryEstimatedPrice}</strong>: <span className="text-exv-accent font-bold">{formatEUR(routeData.price)}</span></p>
+
+                {/* Lignes d’info (prix indicatif / corridor) */}
+                {routeData.lane && (
+                  <p className="text-xs text-exv-sub">
+                    <span className="font-medium">{t.tariffLane} </span>
+                    {routeData.lane === 'PT→PT' && t.lanePTPT}
+                    {routeData.lane === 'PT→FR' && t.lanePTFR}
+                    {routeData.lane === 'PT→CH' && t.lanePTCH}
+                    {routeData.lane === 'GENERIC' && t.laneGeneric}
+                  </p>
+                )}
+                <p className="text-xs text-exv-sub">{t.approxNote}</p>
+                {routeData.note && <p className="text-xs text-exv-sub">{routeData.note}</p>}
+                {(routeData.lane === 'PT→FR' || routeData.lane === 'PT→CH') && (
+                  <p className="text-xs text-exv-sub">{t.customsNote}</p>
+                )}
               </CardContent>
             </Card>
           )}
